@@ -1,0 +1,24 @@
+# Go test and build artifacts
+coverage.out
+coverage.html
+*.test
+/bin/
+/dist/
+*.exe
+*.exe.manifest
+*.dll
+*.so
+*.dylib
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+
+# Editors and operating systems
+/.idea/
+/.vscode/
+.DS_Store
+Thumbs.db
+*.swp
+*.swo

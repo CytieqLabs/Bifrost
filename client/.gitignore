@@ -1,0 +1,30 @@
+# Bifrost runtime state and local worktrees
+.bifrost/
+
+# Local build output
+/bifrost
+/bin/
+/dist/
+*.exe
+*.exe.manifest
+*.dll
+*.so
+*.dylib
+
+# Go tooling
+coverage.out
+coverage.html
+*.test
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+
+# Editors and operating systems
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+*.swp
+*.swo

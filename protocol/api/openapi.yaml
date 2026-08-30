@@ -1,0 +1,344 @@
+openapi: 3.1.0
+info:
+  title: Bifrost Protocol API
+  version: 1.0.0
+  description: Versioned contract implemented by Bifrost Client and the future Bifrost Server.
+servers:
+  - url: http://127.0.0.1:8741/v1
+security:
+  - bearerAuth: []
+paths:
+  /health:
+    get:
+      security: []
+      operationId: health
+      responses:
+        "200":
+          description: Service health
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status, version]
+                properties:
+                  status: { type: string, const: ok }
+                  version: { type: string, const: v1 }
+  /status:
+    get:
+      operationId: repositoryStatus
+      responses:
+        "200":
+          description: Repository execution status
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Status" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /events:
+    get:
+      operationId: streamEvents
+      parameters:
+        - name: after
+          in: query
+          schema: { type: integer, format: uint64, minimum: 0 }
+      responses:
+        "200":
+          description: Replay followed by a live Server-Sent Events stream
+          content:
+            text/event-stream:
+              schema: { type: string }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /runs:
+    get:
+      operationId: listRuns
+      responses:
+        "200":
+          description: Runs ordered newest first
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Run" }
+    post:
+      operationId: startRun
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [task, agent]
+              properties:
+                task: { type: string, minLength: 1 }
+                agent: { type: string, minLength: 1 }
+                parent_id: { type: string }
+      responses:
+        "201":
+          description: Isolated run created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Run" }
+        "400": { $ref: "#/components/responses/Error" }
+  /runs/{runId}:
+    parameters:
+      - $ref: "#/components/parameters/RunId"
+    get:
+      operationId: getRun
+      responses:
+        "200":
+          description: Run and associated immutable records
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RunDetails" }
+        "404": { $ref: "#/components/responses/Error" }
+  /runs/{runId}/checkpoints:
+    parameters:
+      - $ref: "#/components/parameters/RunId"
+    post:
+      operationId: createCheckpoint
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                note: { type: string }
+      responses:
+        "201":
+          description: Checkpoint recorded
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Checkpoint" }
+        "409": { $ref: "#/components/responses/Error" }
+  /runs/{runId}/evidence:
+    parameters:
+      - $ref: "#/components/parameters/RunId"
+    post:
+      operationId: addEvidence
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/EvidenceInput" }
+      responses:
+        "201":
+          description: Evidence recorded
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Evidence" }
+  /runs/{runId}/finish:
+    parameters:
+      - $ref: "#/components/parameters/RunId"
+    post:
+      operationId: finishRun
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                status: { type: string, enum: [completed, failed, cancelled], default: completed }
+                result: { type: string }
+      responses:
+        "200":
+          description: Finished run
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Run" }
+  /runs/{runId}/promotions:
+    parameters:
+      - $ref: "#/components/parameters/RunId"
+    post:
+      operationId: checkPromotion
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                target: { type: string, default: HEAD }
+      responses:
+        "201":
+          description: Immutable promotion check
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Promotion" }
+  /promotions/{promotionId}/apply:
+    parameters:
+      - name: promotionId
+        in: path
+        required: true
+        schema: { type: string }
+    post:
+      operationId: applyPromotion
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          description: Local target branch updated using compare-and-swap
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Promotion" }
+        "409": { $ref: "#/components/responses/Error" }
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+  parameters:
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: false
+      description: Stable visible ASCII key reused when retrying one logical mutation.
+      schema: { type: string, minLength: 8, maxLength: 200 }
+    RunId:
+      name: runId
+      in: path
+      required: true
+      schema: { type: string }
+  responses:
+    Error:
+      description: Request failure
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Unauthorized:
+      description: Missing or invalid bearer token
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+  schemas:
+    Status:
+      type: object
+      required: [repository, head, dirty, runs, active_runs, checkpoints, evidence, promotions]
+      properties:
+        repository: { type: string }
+        head: { type: string }
+        dirty: { type: boolean }
+        runs: { type: integer }
+        active_runs: { type: integer }
+        checkpoints: { type: integer }
+        evidence: { type: integer }
+        promotions: { type: integer }
+    Run:
+      type: object
+      required: [id, task, agent, base_commit, workspace, status, created_at, updated_at]
+      properties:
+        id: { type: string }
+        task: { type: string }
+        agent: { type: string }
+        parent_id: { type: string }
+        base_commit: { type: string }
+        result_commit: { type: string }
+        workspace:
+          $ref: "#/components/schemas/Workspace"
+        status: { type: string, enum: [running, completed, failed, cancelled] }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    RunDetails:
+      type: object
+      required: [run, checkpoints, evidence, promotions]
+      properties:
+        run: { $ref: "#/components/schemas/Run" }
+        checkpoints:
+          type: array
+          items: { $ref: "#/components/schemas/Checkpoint" }
+        evidence:
+          type: array
+          items: { $ref: "#/components/schemas/Evidence" }
+        promotions:
+          type: array
+          items: { $ref: "#/components/schemas/Promotion" }
+    Checkpoint:
+      type: object
+      required: [id, run_id, commit, created_at]
+      properties:
+        id: { type: string }
+        run_id: { type: string }
+        commit: { type: string }
+        note: { type: string }
+        created_at: { type: string, format: date-time }
+    EvidenceInput:
+      type: object
+      additionalProperties: false
+      required: [kind]
+      properties:
+        kind: { type: string, enum: [test, build, scan, review] }
+        command: { type: string }
+        exit_code: { type: integer, default: 0 }
+        summary: { type: string }
+        artifact: { type: string, description: Workspace-relative server path }
+    Evidence:
+      allOf:
+        - $ref: "#/components/schemas/EvidenceInput"
+        - type: object
+          required: [id, run_id, created_at]
+          properties:
+            id: { type: string }
+            run_id: { type: string }
+            artifact_sha256: { type: string }
+            created_at: { type: string, format: date-time }
+    Promotion:
+      type: object
+      required: [id, run_id, target_ref, target_commit, result_commit, status, created_at]
+      properties:
+        id: { type: string }
+        run_id: { type: string }
+        target_ref: { type: string }
+        target_commit: { type: string }
+        result_commit: { type: string }
+        merge_tree: { type: string }
+        status: { type: string, enum: [ready, blocked, stale, conflicted, applying, applied] }
+        policy_failures: { type: array, items: { type: string } }
+        conflicts: { type: array, items: { type: string } }
+        applied_commit: { type: string }
+        applied_at: { type: string, format: date-time }
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              enum:
+                - unauthorized
+                - not_found
+                - invalid_request
+                - invalid_json
+                - conflict
+                - method_not_allowed
+                - unsupported_media_type
+                - request_too_large
+                - idempotency_conflict
+                - invalid_idempotency
+            message: { type: string }
+    Workspace:
+      type: object
+      required: [id, mode, state]
+      properties:
+        id: { type: string }
+        mode: { type: string, enum: [local, remote] }
+        state: { type: string, enum: [active, removed] }
+        path:
+          type: string
+          description: Optional path populated only by a local Bifrost client.

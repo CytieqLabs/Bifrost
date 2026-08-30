@@ -1,0 +1,27 @@
+name: Bifrost CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Test
+        run: GOWORK=off go test ./...
+      - name: Race test
+        run: GOWORK=off go test -race ./...
+      - name: Vet
+        run: GOWORK=off go vet ./...
+      - name: Build
+        run: GOWORK=off go build -o bifrost ./client/cmd/bifrost
